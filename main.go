@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"image"
 	"image/color"
 	"log"
+	"net"
 	"os"
 	"strings"
 
@@ -17,23 +19,44 @@ import (
 	"gioui.org/widget/material"
 )
 
+const (
+	ServerPort = "9001"
+	ServerHost = "localhost"
+	label      = "Secure Chat"
+)
+
+var (
+	connection net.Conn = nil
+	err        error    = nil
+	n          int      = 0
+)
+
 type Message struct {
 	Text   string
 	FromMe bool
 }
 
 type AppState struct {
-	Messages []Message
-	List     widget.List
-	Input    widget.Editor
-	Send     widget.Clickable
+	Messages   []Message
+	List       widget.List
+	Input      widget.Editor
+	Send       widget.Clickable
+	Incoming   chan string
+	Status     chan string
+	Connected  bool
+	StatusText string
 }
 
 func main() {
 	go func() {
+		connection, err = net.Dial("tcp", ServerHost+":"+ServerPort)
+		if err != nil {
+			log.Fatalln(err)
+		}
+
 		var w app.Window
 		w.Option(
-			app.Title("Rayden Chat"),
+			app.Title(label),
 			app.Size(unit.Dp(980), unit.Dp(640)),
 		)
 		if err := run(&w); err != nil {
@@ -50,22 +73,62 @@ func run(w *app.Window) error {
 	applyTheme(th)
 
 	state := AppState{
-		Messages: []Message{
-			{Text: "Hey! This is a simple Gio chat UI.", FromMe: false},
-			{Text: "Nice. Can it handle a few messages?", FromMe: true},
-			{Text: "Yep — the layout scales and keeps input pinned.", FromMe: false},
-		},
-		List:  widget.List{List: layout.List{Axis: layout.Vertical}},
-		Input: widget.Editor{SingleLine: true, Submit: true},
+		Messages:   []Message{},
+		List:       widget.List{List: layout.List{Axis: layout.Vertical}},
+		Input:      widget.Editor{SingleLine: true, Submit: true},
+		Incoming:   make(chan string, 64),
+		Status:     make(chan string, 8),
+		Connected:  true,
+		StatusText: "Connected",
 	}
+
+	go func() {
+		reader := bufio.NewReader(connection)
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				state.Status <- "Disconnected"
+				state.Connected = false
+				w.Invalidate()
+				return
+			}
+			msg := strings.TrimSpace(line)
+			if msg == "" {
+				continue
+			}
+			state.Incoming <- msg
+			w.Invalidate()
+		}
+	}()
 
 	for {
 		e := w.Event()
 		switch ev := e.(type) {
 		case app.DestroyEvent:
+			if connection != nil {
+				_ = connection.Close()
+			}
 			return ev.Err
 		case app.FrameEvent:
 			gtx := app.NewContext(&ops, ev)
+			for {
+				select {
+				case msg := <-state.Incoming:
+					state.Messages = append(state.Messages, Message{Text: msg, FromMe: false})
+				default:
+					goto messagesDrained
+				}
+			}
+		messagesDrained:
+			for {
+				select {
+				case status := <-state.Status:
+					state.StatusText = status
+				default:
+					goto statusDrained
+				}
+			}
+		statusDrained:
 			submittedText, submitted := consumeSubmit(gtx, &state)
 			var sendClicked bool
 			layoutChat(gtx, th, &state, &sendClicked)
@@ -77,11 +140,19 @@ func run(w *app.Window) error {
 				}
 				if text != "" {
 					state.Messages = append(state.Messages, Message{Text: text, FromMe: true})
+					if !state.Connected {
+						state.Messages = append(state.Messages, Message{Text: "Not connected.", FromMe: false})
+					} else if _, err := connection.Write([]byte(text + "\n")); err != nil {
+						state.Messages = append(state.Messages, Message{Text: "Send failed: " + err.Error(), FromMe: false})
+						state.StatusText = "Disconnected"
+						state.Connected = false
+					}
 					state.Input.SetText("")
 				}
 			}
 			ev.Frame(gtx.Ops)
 		}
+
 	}
 }
 
@@ -114,7 +185,7 @@ func layoutChat(gtx layout.Context, th *material.Theme, state *AppState, sendCli
 	return layout.Flex{Axis: layout.Vertical}.Layout(
 		gtx,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return headerBar(gtx, th)
+			return headerBar(gtx, th, state)
 		}),
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 			return messageList(gtx, th, state)
@@ -125,16 +196,33 @@ func layoutChat(gtx layout.Context, th *material.Theme, state *AppState, sendCli
 	)
 }
 
-func headerBar(gtx layout.Context, th *material.Theme) layout.Dimensions {
+func headerBar(gtx layout.Context, th *material.Theme, state *AppState) layout.Dimensions {
 	height := gtx.Dp(unit.Dp(56))
 	gtx.Constraints.Min.Y = height
 	gtx.Constraints.Max.Y = height
 	fill(gtx, color.NRGBA{R: 0x12, G: 0x18, B: 0x2B, A: 0xFF})
 	inset := layout.Inset{Left: unit.Dp(16), Right: unit.Dp(16), Top: unit.Dp(10), Bottom: unit.Dp(10)}
 	return inset.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		title := material.Label(th, unit.Sp(18), "Rayden Chat")
-		title.Color = color.NRGBA{R: 0xFF, G: 0xFF, B: 0xFF, A: 0xFF}
-		return title.Layout(gtx)
+		return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(
+			gtx,
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				title := material.Label(th, unit.Sp(18), label)
+				title.Color = color.NRGBA{R: 0xFF, G: 0xFF, B: 0xFF, A: 0xFF}
+				return title.Layout(gtx)
+			}),
+			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+				return layout.Dimensions{}
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				status := material.Label(th, unit.Sp(14), state.StatusText)
+				if state.Connected {
+					status.Color = color.NRGBA{R: 0xB8, G: 0xF1, B: 0xC2, A: 0xFF}
+				} else {
+					status.Color = color.NRGBA{R: 0xFF, G: 0xB3, B: 0xB3, A: 0xFF}
+				}
+				return status.Layout(gtx)
+			}),
+		)
 	})
 }
 

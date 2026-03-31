@@ -1,5 +1,8 @@
 package main
 
+// TODO: handle the auth key
+// TODO: use enc from scratch (RSA)
+
 import (
 	"bufio"
 	"log"
