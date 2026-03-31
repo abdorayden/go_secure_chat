@@ -7,6 +7,8 @@ import (
 	"bufio"
 	"log"
 	"net"
+	"strings"
+	"sync"
 )
 
 const Port = "9001"
@@ -24,18 +26,25 @@ func NewClient(connection net.Conn) *Client {
 }
 
 var (
-	broadcast map[string]net.Conn
+	broadcast   map[string]net.Conn
+	broadcastMu sync.Mutex
 )
 
 func handle(connection net.Conn) {
 	var err error
+	senderAddr := connection.RemoteAddr().String()
 	defer func() {
+		broadcastMu.Lock()
+		delete(broadcast, senderAddr)
+		broadcastMu.Unlock()
 		if connection.Close() != nil {
 			log.Fatalf("cannot close a tcp from client %v", connection.RemoteAddr().String())
 		}
 	}()
 
-	broadcast[connection.RemoteAddr().String()] = connection
+	broadcastMu.Lock()
+	broadcast[senderAddr] = connection
+	broadcastMu.Unlock()
 
 	reader := bufio.NewReader(connection)
 	for {
@@ -43,27 +52,32 @@ func handle(connection net.Conn) {
 		message, err = reader.ReadString('\n')
 
 		if err != nil {
+			if message == "" {
+				return
+			}
 			log.Println(err)
 		}
 
-		if len(message) > 0 && message == "quit" {
+		if strings.TrimSpace(message) == "quit" {
 			break
 		}
 
+		broadcastMu.Lock()
 		for ip_addr, conn := range broadcast {
-			if ip_addr != conn.RemoteAddr().String() {
-				var n int
-				n, err := connection.Write([]byte(message))
-				if err != nil {
-					log.Println(err)
-				}
+			if ip_addr == senderAddr {
+				continue
+			}
+			var n int
+			n, err := conn.Write([]byte(message))
+			if err != nil {
+				log.Println(err)
+			}
 
-				if n == 0 {
-					log.Println("client quit")
-					break
-				}
+			if n == 0 {
+				log.Println("client quit")
 			}
 		}
+		broadcastMu.Unlock()
 
 	}
 }
@@ -84,6 +98,7 @@ func main() {
 	}()
 
 	log.Printf("listining on port %v", Port)
+	broadcast = make(map[string]net.Conn)
 
 	for {
 		connection, err = listener.Accept()
