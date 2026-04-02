@@ -117,10 +117,8 @@ func broadcastMessage(msg string) {
 
 	fullMsg := msg + "\n"
 	for _, client := range clients {
-		if client.Name != me.Name {
-			if _, err := client.Conn.Write([]byte(fullMsg)); err != nil {
-				log.Printf("write error to %s: %v", client.Name, err)
-			}
+		if _, err := client.Conn.Write([]byte(fullMsg)); err != nil {
+			log.Printf("write error to %s: %v", client.Name, err)
 		}
 	}
 }
