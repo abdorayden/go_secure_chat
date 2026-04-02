@@ -9,6 +9,10 @@ import (
 	mathrand "math/rand"
 )
 
+// NOTE: structures stolen from std enc package and keep comments for more explanations
+// check "crypto/rsa" package
+// import "crypto/rsa"
+
 // A PublicKey represents the public part of an RSA key.
 //
 // The values of N and E are not considered confidential, and may leak through

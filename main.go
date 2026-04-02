@@ -23,6 +23,9 @@ import (
 	"chat_sec/server/enc"
 )
 
+// TODO: rewrite all this painfull UI implementations in other platform (web) or other easy lib
+// but keep golang as backend language
+
 const (
 	ServerPort = "9001"
 	ServerHost = "localhost"
@@ -41,6 +44,11 @@ type Message struct {
 	FromMe bool
 }
 
+type IncomingMsg struct {
+	Text   string
+	FromMe bool
+}
+
 type AppState struct {
 	Messages      []Message
 	List          widget.List
@@ -49,7 +57,7 @@ type AppState struct {
 	Username      string
 	Send          widget.Clickable
 	JoinBtn       widget.Clickable
-	Incoming      chan string
+	Incoming      chan IncomingMsg
 	Status        chan string
 	Connected     bool
 	StatusText    string
@@ -109,7 +117,7 @@ func run(w *app.Window, reader *bufio.Reader) error {
 		List:          widget.List{List: layout.List{Axis: layout.Vertical}},
 		Input:         widget.Editor{SingleLine: true, Submit: true},
 		UsernameInput: widget.Editor{SingleLine: true, Submit: true},
-		Incoming:      make(chan string, 64),
+		Incoming:      make(chan IncomingMsg, 64),
 		Status:        make(chan string, 8),
 		Connected:     true,
 		Joined:        false,
@@ -129,7 +137,8 @@ func run(w *app.Window, reader *bufio.Reader) error {
 			if msg == "" {
 				continue
 			}
-			state.Incoming <- msg
+			fromMe := strings.HasPrefix(msg, state.Username+": ")
+			state.Incoming <- IncomingMsg{Text: msg, FromMe: fromMe}
 			w.Invalidate()
 		}
 	}()
@@ -148,7 +157,7 @@ func run(w *app.Window, reader *bufio.Reader) error {
 			for {
 				select {
 				case msg := <-state.Incoming:
-					state.Messages = append(state.Messages, Message{Text: msg, FromMe: false})
+					state.Messages = append(state.Messages, Message{Text: msg.Text, FromMe: msg.FromMe})
 				default:
 					goto messagesDrained
 				}
@@ -271,8 +280,6 @@ func layoutChat(gtx layout.Context, th *material.Theme, state *AppState, w *app.
 			text = submittedText
 		}
 		if text != "" {
-			state.Messages = append(state.Messages, Message{Text: text, FromMe: true})
-
 			keyMu.RLock()
 			pubKey := serverPubKey
 			keyMu.RUnlock()
