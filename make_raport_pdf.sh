@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -lt 1 || $# -gt 2 ]]; then
+  echo "Usage: $0 <path-to-Raport.md> [output.pdf]" >&2
+  exit 1
+fi
+
+md_path="$1"
+
+if [[ ! -f "$md_path" ]]; then
+  echo "Error: markdown file not found: $md_path" >&2
+  exit 1
+fi
+
+md_dir="$(cd "$(dirname "$md_path")" && pwd)"
+md_base="$(basename "$md_path")"
+
+output_pdf="${2:-${md_dir}/${md_base%.md}.pdf}"
+html_path="${md_dir}/${md_base%.md}.html"
+css_path="${md_dir}/report.css"
+
+if ! command -v pandoc >/dev/null 2>&1; then
+  echo "Error: pandoc not found. Install pandoc first." >&2
+  exit 1
+fi
+
+if ! command -v wkhtmltopdf >/dev/null 2>&1; then
+  echo "Error: wkhtmltopdf not found. Install wkhtmltopdf first." >&2
+  exit 1
+fi
+
+if [[ ! -f "$css_path" ]]; then
+  cat <<'CSS' > "$css_path"
+@page {
+  margin: 22mm 20mm 22mm 20mm;
+}
+
+body {
+  font-family: "Liberation Serif", "DejaVu Serif", "Times New Roman", serif;
+  font-size: 12.5pt;
+  line-height: 1.55;
+  color: #1f1f1f;
+  background: #ffffff;
+}
+
+h1, h2, h3 {
+  font-family: "Liberation Sans", "DejaVu Sans", Arial, sans-serif;
+  color: #14213d;
+  margin-top: 1.2em;
+  margin-bottom: 0.4em;
+}
+
+h1 {
+  font-size: 20pt;
+  border-bottom: 2px solid #e5e5e5;
+  padding-bottom: 6px;
+}
+
+h2 {
+  font-size: 16pt;
+}
+
+h3 {
+  font-size: 13.5pt;
+}
+
+p {
+  margin: 0.2em 0 0.8em 0;
+}
+
+ul, ol {
+  margin: 0.3em 0 0.8em 1.2em;
+}
+
+li {
+  margin: 0.2em 0;
+}
+
+img {
+  display: block;
+  margin: 0.6em auto 0.8em auto;
+  max-width: 90%;
+  height: auto;
+  border: 1px solid #e5e5e5;
+  padding: 4px;
+  background: #fafafa;
+}
+
+code {
+  font-family: "DejaVu Sans Mono", "Liberation Mono", Consolas, monospace;
+  font-size: 11.5pt;
+  background: #f6f6f6;
+  padding: 0 3px;
+  border-radius: 3px;
+}
+
+blockquote {
+  border-left: 3px solid #e5e5e5;
+  padding-left: 10px;
+  color: #4f4f4f;
+}
+CSS
+fi
+
+(
+  cd "$md_dir"
+  pandoc "$md_base" --standalone --css "$(basename "$css_path")" -o "$(basename "$html_path")"
+  wkhtmltopdf --enable-local-file-access "$(basename "$html_path")" "$(basename "$output_pdf")"
+)
+
+echo "Created: $output_pdf"

@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>README</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    span.underline{text-decoration: underline;}
+    div.column{display: inline-block; vertical-align: top; width: 50%;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+    pre > code.sourceCode { white-space: pre; position: relative; }
+    pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+    pre > code.sourceCode > span:empty { height: 1.2em; }
+    .sourceCode { overflow: visible; }
+    code.sourceCode > span { color: inherit; text-decoration: inherit; }
+    div.sourceCode { margin: 1em 0; }
+    pre.sourceCode { margin: 0; }
+    @media screen {
+    div.sourceCode { overflow: auto; }
+    }
+    @media print {
+    pre > code.sourceCode { white-space: pre-wrap; }
+    pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+    }
+    pre.numberSource code
+      { counter-reset: source-line 0; }
+    pre.numberSource code > span
+      { position: relative; left: -4em; counter-increment: source-line; }
+    pre.numberSource code > span > a:first-child::before
+      { content: counter(source-line);
+        position: relative; left: -1em; text-align: right; vertical-align: baseline;
+        border: none; display: inline-block;
+        -webkit-touch-callout: none; -webkit-user-select: none;
+        -khtml-user-select: none; -moz-user-select: none;
+        -ms-user-select: none; user-select: none;
+        padding: 0 4px; width: 4em;
+        color: #aaaaaa;
+      }
+    pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+    div.sourceCode
+      {   }
+    @media screen {
+    pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+    }
+    code span.al { color: #ff0000; font-weight: bold; } /* Alert */
+    code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } /* Annotation */
+    code span.at { color: #7d9029; } /* Attribute */
+    code span.bn { color: #40a070; } /* BaseN */
+    code span.bu { color: #008000; } /* BuiltIn */
+    code span.cf { color: #007020; font-weight: bold; } /* ControlFlow */
+    code span.ch { color: #4070a0; } /* Char */
+    code span.cn { color: #880000; } /* Constant */
+    code span.co { color: #60a0b0; font-style: italic; } /* Comment */
+    code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } /* CommentVar */
+    code span.do { color: #ba2121; font-style: italic; } /* Documentation */
+    code span.dt { color: #902000; } /* DataType */
+    code span.dv { color: #40a070; } /* DecVal */
+    code span.er { color: #ff0000; font-weight: bold; } /* Error */
+    code span.ex { } /* Extension */
+    code span.fl { color: #40a070; } /* Float */
+    code span.fu { color: #06287e; } /* Function */
+    code span.im { color: #008000; font-weight: bold; } /* Import */
+    code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } /* Information */
+    code span.kw { color: #007020; font-weight: bold; } /* Keyword */
+    code span.op { color: #666666; } /* Operator */
+    code span.ot { color: #007020; } /* Other */
+    code span.pp { color: #bc7a00; } /* Preprocessor */
+    code span.sc { color: #4070a0; } /* SpecialChar */
+    code span.ss { color: #bb6688; } /* SpecialString */
+    code span.st { color: #4070a0; } /* String */
+    code span.va { color: #19177c; } /* Variable */
+    code span.vs { color: #4070a0; } /* VerbatimString */
+    code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } /* Warning */
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="report.css" />
+</head>
+<body>
+<h1 id="section">2026-04-03</h1>
+<h1 id="technology">Technology</h1>
+<ul>
+<li>Language: Go (module <code>chat_sec</code>, see
+<code>go.mod</code>)</li>
+<li>UI: Gio (gioui.org) for the desktop client</li>
+<li>Networking: TCP sockets</li>
+<li>Crypto: Custom RSA implementation in <code>server/enc</code>
+(keygen, encrypt/decrypt, base64 marshaling)</li>
+</ul>
+<h1 id="project-structure">Project Structure</h1>
+<ul>
+<li><code>main.go</code>: Gio desktop chat client (GUI)</li>
+<li><code>server/main.go</code>: TCP chat server (broadcast + RSA
+decrypt)</li>
+<li><code>server/enc/ma_rsa.go</code>: RSA implementation used by server
+and clients</li>
+<li><code>assets/</code>: UI screenshots</li>
+<li><code>main</code>, <code>client/client</code>,
+<code>server/server</code>, <code>chat_sec</code>: built binaries</li>
+<li><code>go.mod</code>, <code>go.sum</code>: Go module metadata</li>
+</ul>
+<h1 id="how-does-the-server-works">How Does the Server Works</h1>
+<ul>
+<li>On startup, the server generates a 2048-bit RSA key pair and starts
+listening on TCP port <code>9001</code>.</li>
+<li>When a client connects, the server sends
+<code>PUBKEY:&lt;base64(N)|base64(E)&gt;</code> as the first line.</li>
+<li>Client sends <code>USERNAME:&lt;name&gt;</code>; server stores the
+connection and broadcasts a system join message.</li>
+<li>Each client message is sent as
+<code>MSG:&lt;base64(ciphertext)&gt;</code>.</li>
+<li>Server base64-decodes the ciphertext, decrypts with the RSA private
+key, and broadcasts the plaintext to all clients as
+<code>&lt;username&gt;: &lt;message&gt;</code>.</li>
+<li>Disconnects remove clients and broadcast a system leave
+message.</li>
+</ul>
+<h2 id="client-see">Client See</h2>
+<ul>
+<li>GUI client (<code>main.go</code>) opens a window with a username
+entry screen, then a chat view.</li>
+<li>Chat view shows a header (username + status), a scrollable message
+list, and an input bar with a Send button.</li>
+<li>Outgoing messages are encrypted with the server public key and sent
+as <code>MSG:</code> payloads.</li>
+<li>CLI client (<code>client/main.go</code>) prompts for username,
+prints incoming messages, and sends encrypted text on each line.</li>
+</ul>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">go</span> run server/main.go</span></code></pre></div>
+<p>In another terminal:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">go</span> run main.go     <span class="co"># GUI client</span></span></code></pre></div>
+<p>Notes: - Default host/port: <code>localhost:9001</code> in both
+clients and server. - Message size is limited by RSA key size (2048-bit
+key → max plaintext ~245 bytes in this implementation). - The RSA
+implementation is raw (no padding/auth). It is fine for a demo but not
+secure for production.</p>
+<h1 id="the-view">The View</h1>
+<p>Screenshots from <code>assets/</code>:</p>
+<p><img src="assets/apply_name_view.png" alt="Join screen" /> <img
+src="assets/the_chat_view_after_we_choose_the_name.png"
+alt="Chat view" /> <img src="assets/3_clients_demo.png"
+alt="Multiple clients" /></p>
+</body>
+</html>

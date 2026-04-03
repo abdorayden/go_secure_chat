@@ -9,6 +9,15 @@ import (
 	mathrand "math/rand"
 )
 
+// References: examples how rsa is implemented
+
+// https://github.com/ustacode/RSA-Implementation
+// https://gist.github.com/djego/97db0d1bc3d16a9dcb9bab0930d277ff
+
+// the actual go std lib for better examples in go
+// https://github.com/golang/go/tree/master/src/crypto/rsa
+
+//////////////////////////////////////////////////
 // NOTE: structures stolen from std enc package and keep comments for more explanations
 // check "crypto/rsa" package
 // import "crypto/rsa"
@@ -56,6 +65,8 @@ type RSAPrivateKey struct {
 	// must not be modified.
 	Precomputed PrecomputedValues
 }
+
+//////////////////////////////////////////////////
 
 func modExp(base, exp, mod *big.Int) *big.Int {
 	result := big.NewInt(1) // for big numbers
