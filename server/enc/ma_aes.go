@@ -4,6 +4,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	cryptorand "crypto/rand"
+	"encoding/base64"
 	"errors"
 	"io"
 )
@@ -69,4 +70,21 @@ func DecryptAES(key, ciphertext []byte) ([]byte, error) {
 	nonce := ciphertext[:nonceSize]
 	ciphertext = ciphertext[nonceSize:]
 	return gcm.Open(nil, nonce, ciphertext, nil)
+}
+
+// base64 implementation
+func EncryptAESBase64(key, msg []byte) (string, error) {
+	ciphertext, err := EncryptAES(key, msg)
+	if err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(ciphertext), nil
+}
+
+func DecryptAESBase64(key []byte, cipherTextB64 string) ([]byte, error) {
+	ciphertext, err := base64.StdEncoding.DecodeString(cipherTextB64)
+	if err != nil {
+		return nil, err
+	}
+	return DecryptAES(key, ciphertext)
 }
