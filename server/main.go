@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/base64"
+	"flag"
 	"log"
 	"net"
 	"strings"
@@ -26,6 +27,8 @@ var (
 	clientsMu  sync.RWMutex
 	serverPriv *enc.RSAPrivateKey
 	serverPub  *enc.RSAPublicKey
+	serverAES  []byte
+	encMode    string
 	me         *Client
 )
 
@@ -34,9 +37,24 @@ func handle(connection net.Conn) {
 
 	reader := bufio.NewReader(connection)
 
-	_, err := connection.Write([]byte("PUBKEY:" + serverPub.Marshal() + "\n"))
-	if err != nil {
-		log.Printf("error sending public key to %s: %v", senderAddr, err)
+	switch encMode {
+	case "rsa":
+		_, err := connection.Write([]byte("PUBKEY:" + serverPub.Marshal() + "\n"))
+		if err != nil {
+			log.Printf("error sending public key to %s: %v", senderAddr, err)
+			connection.Close()
+			return
+		}
+	case "aes":
+		keyB64 := base64.StdEncoding.EncodeToString(serverAES)
+		_, err := connection.Write([]byte("AESKEY:" + keyB64 + "\n"))
+		if err != nil {
+			log.Printf("error sending AES key to %s: %v", senderAddr, err)
+			connection.Close()
+			return
+		}
+	default:
+		log.Printf("unknown encryption mode: %s", encMode)
 		connection.Close()
 		return
 	}
@@ -94,15 +112,27 @@ func handle(connection net.Conn) {
 		}
 
 		ciphertextB64 := strings.TrimPrefix(message, "MSG:")
-		ciphertext, err := base64.StdEncoding.DecodeString(ciphertextB64)
-		if err != nil {
-			log.Printf("invalid ciphertext from %s: %v", username, err)
-			continue
-		}
-
-		plaintext, err := enc.Decrypt(serverPriv, ciphertext)
-		if err != nil {
-			log.Printf("decryption error from %s: %v", username, err)
+		var plaintext []byte
+		switch encMode {
+		case "rsa":
+			ciphertext, err := base64.StdEncoding.DecodeString(ciphertextB64)
+			if err != nil {
+				log.Printf("invalid ciphertext from %s: %v", username, err)
+				continue
+			}
+			plaintext, err = enc.Decrypt(serverPriv, ciphertext)
+			if err != nil {
+				log.Printf("decryption error from %s: %v", username, err)
+				continue
+			}
+		case "aes":
+			plaintext, err = enc.DecryptAESBase64(serverAES, ciphertextB64)
+			if err != nil {
+				log.Printf("decryption error from %s: %v", username, err)
+				continue
+			}
+		default:
+			log.Printf("unknown encryption mode: %s", encMode)
 			continue
 		}
 
@@ -137,12 +167,43 @@ func broadcastSystemMessage(msg string) {
 
 func main() {
 	var err error
+	var aesKeyB64 string
+	var aesKeySize int
 
-	serverPriv, serverPub, err = enc.GenerateKeyPair(2048)
-	if err != nil {
-		log.Fatalf("failed to generate RSA key pair: %v", err)
+	flag.StringVar(&encMode, "enc", "rsa", "encryption mode: rsa or aes")
+	flag.StringVar(&aesKeyB64, "aes-key", "", "base64-encoded AES key (optional)")
+	flag.IntVar(&aesKeySize, "aes-key-size", 32, "AES key size in bytes when generating (16, 24, 32)")
+	flag.Parse()
+
+	encMode = strings.ToLower(encMode)
+	if encMode != "rsa" && encMode != "aes" {
+		log.Fatalf("invalid -enc value %q (use rsa or aes)", encMode)
 	}
-	log.Printf("RSA key pair generated (2048 bits)")
+
+	switch encMode {
+	case "rsa":
+		serverPriv, serverPub, err = enc.GenerateKeyPair(2048)
+		if err != nil {
+			log.Fatalf("failed to generate RSA key pair: %v", err)
+		}
+		log.Printf("RSA key pair generated (2048 bits)")
+	case "aes":
+		if aesKeyB64 != "" {
+			serverAES, err = base64.StdEncoding.DecodeString(aesKeyB64)
+			if err != nil {
+				log.Fatalf("invalid -aes-key base64: %v", err)
+			}
+			if len(serverAES) != 16 && len(serverAES) != 24 && len(serverAES) != 32 {
+				log.Fatalf("invalid AES key length %d (must be 16, 24, or 32 bytes)", len(serverAES))
+			}
+		} else {
+			serverAES, err = enc.GenerateAESKey(aesKeySize)
+			if err != nil {
+				log.Fatalf("failed to generate AES key: %v", err)
+			}
+		}
+		log.Printf("AES mode enabled (key size %d bytes)", len(serverAES))
+	}
 
 	listener, err := net.Listen("tcp", ":"+Port)
 	if err != nil {

@@ -2,7 +2,10 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/base64"
+	"errors"
+	"flag"
 	"image"
 	"image/color"
 	"log"
@@ -33,9 +36,13 @@ const (
 )
 
 var (
-	connection   net.Conn = nil
-	err          error    = nil
+	connection net.Conn = nil
+	err        error    = nil
+	// RSA option
 	serverPubKey *enc.RSAPublicKey
+	// AES option
+	serverAESKey []byte
+	encMode      string
 	keyMu        sync.RWMutex
 )
 
@@ -64,7 +71,33 @@ type AppState struct {
 	Joined        bool
 }
 
+// NOTE: the client sent message encrypted to the server , server decrypt the message and sent it to other clients as plaintext
+// TODO: server should shared the message encrypted and the client should decrypt the message and show it in interface
+
 func main() {
+	var encFlag string
+	var aesKeyB64 string
+
+	flag.StringVar(&encFlag, "enc", "rsa", "encryption mode: rsa or aes")
+	flag.StringVar(&aesKeyB64, "aes-key", "", "base64-encoded AES key (optional)")
+	flag.Parse()
+
+	encFlag = strings.ToLower(encFlag)
+	if encFlag != "rsa" && encFlag != "aes" {
+		log.Fatalf("invalid -enc value %q (use rsa or aes)", encFlag)
+	}
+
+	var expectedAESKey []byte
+	if aesKeyB64 != "" {
+		expectedAESKey, err = base64.StdEncoding.DecodeString(aesKeyB64)
+		if err != nil {
+			log.Fatalf("invalid -aes-key base64: %v", err)
+		}
+		if len(expectedAESKey) != 16 && len(expectedAESKey) != 24 && len(expectedAESKey) != 32 {
+			log.Fatalf("invalid AES key length %d (must be 16, 24, or 32 bytes)", len(expectedAESKey))
+		}
+	}
+
 	go func() {
 		connection, err = net.Dial("tcp", ServerHost+":"+ServerPort)
 		if err != nil {
@@ -78,21 +111,48 @@ func main() {
 		}
 
 		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "PUBKEY:") {
+		switch {
+		case strings.HasPrefix(line, "PUBKEY:"):
+			if encFlag != "rsa" {
+				log.Fatalln("server is using RSA but client is configured for AES")
+			}
+			pubKeyStr := strings.TrimPrefix(line, "PUBKEY:")
+			serverPub, err := enc.UnmarshalPublicKey(pubKeyStr)
+			if err != nil {
+				log.Fatalln("failed to parse public key:", err)
+			}
+
+			keyMu.Lock()
+			serverPubKey = serverPub
+			encMode = "rsa"
+			keyMu.Unlock()
+
+			log.Println("Received server public key")
+		case strings.HasPrefix(line, "AESKEY:"):
+			if encFlag != "aes" {
+				log.Fatalln("server is using AES but client is configured for RSA")
+			}
+			keyB64 := strings.TrimPrefix(line, "AESKEY:")
+			key, err := base64.StdEncoding.DecodeString(keyB64)
+			if err != nil {
+				log.Fatalln("failed to parse AES key:", err)
+			}
+			if len(key) != 16 && len(key) != 24 && len(key) != 32 {
+				log.Fatalln("invalid AES key length:", len(key))
+			}
+			if expectedAESKey != nil && !bytes.Equal(expectedAESKey, key) {
+				log.Fatalln("server AES key does not match provided -aes-key")
+			}
+
+			keyMu.Lock()
+			serverAESKey = key
+			encMode = "aes"
+			keyMu.Unlock()
+
+			log.Println("Received server AES key")
+		default:
 			log.Fatalln("unexpected server message:", line)
 		}
-
-		pubKeyStr := strings.TrimPrefix(line, "PUBKEY:")
-		serverPub, err := enc.UnmarshalPublicKey(pubKeyStr)
-		if err != nil {
-			log.Fatalln("failed to parse public key:", err)
-		}
-
-		keyMu.Lock()
-		serverPubKey = serverPub
-		keyMu.Unlock()
-
-		log.Println("Received server public key")
 
 		var w app.Window
 		w.Option(
@@ -282,16 +342,30 @@ func layoutChat(gtx layout.Context, th *material.Theme, state *AppState, w *app.
 		if text != "" {
 			keyMu.RLock()
 			pubKey := serverPubKey
+			aesKey := serverAESKey
+			mode := encMode
 			keyMu.RUnlock()
 
-			if !state.Connected || pubKey == nil {
+			if !state.Connected || (mode == "rsa" && pubKey == nil) || (mode == "aes" && len(aesKey) == 0) {
 				state.Messages = append(state.Messages, Message{Text: "Not connected.", FromMe: false})
 			} else {
-				ciphertext, err := enc.Encrypt(pubKey, []byte(text))
+				var ciphertextB64 string
+				var err error
+				switch mode {
+				case "rsa":
+					ciphertext, err := enc.Encrypt(pubKey, []byte(text))
+					if err == nil {
+						ciphertextB64 = base64.StdEncoding.EncodeToString(ciphertext)
+					}
+				case "aes":
+					ciphertextB64, err = enc.EncryptAESBase64(aesKey, []byte(text))
+				default:
+					err = errors.New("unknown encryption mode")
+				}
+
 				if err != nil {
 					state.Messages = append(state.Messages, Message{Text: "Encryption failed: " + err.Error(), FromMe: false})
 				} else {
-					ciphertextB64 := base64.StdEncoding.EncodeToString(ciphertext)
 					_, err = connection.Write([]byte("MSG:" + ciphertextB64 + "\n"))
 					if err != nil {
 						state.Messages = append(state.Messages, Message{Text: "Send failed: " + err.Error(), FromMe: false})
