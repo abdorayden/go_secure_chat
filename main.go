@@ -29,6 +29,9 @@ import (
 // TODO: rewrite all this painfull UI implementations in other platform (web) or other easy lib
 // but keep golang as backend language
 
+// TODO: add signin and signup fields
+// signup must have username field that used after the user signin
+
 const (
 	ServerPort = "9001"
 	ServerHost = "localhost"
@@ -61,6 +64,8 @@ type AppState struct {
 	List          widget.List
 	Input         widget.Editor
 	UsernameInput widget.Editor
+	MailInput     widget.Editor
+	PasswordInput widget.Editor
 	Username      string
 	Send          widget.Clickable
 	JoinBtn       widget.Clickable
@@ -173,10 +178,13 @@ func run(w *app.Window, reader *bufio.Reader) error {
 	applyTheme(th)
 
 	state := AppState{
-		Messages:      []Message{},
-		List:          widget.List{List: layout.List{Axis: layout.Vertical}},
-		Input:         widget.Editor{SingleLine: true, Submit: true},
+		Messages: []Message{},
+		List:     widget.List{List: layout.List{Axis: layout.Vertical}},
+		Input:    widget.Editor{SingleLine: true, Submit: true},
+		// NOTE: logged in
 		UsernameInput: widget.Editor{SingleLine: true, Submit: true},
+		MailInput:     widget.Editor{SingleLine: true, Submit: true},
+		PasswordInput: widget.Editor{SingleLine: true, Submit: true},
 		Incoming:      make(chan IncomingMsg, 64),
 		Status:        make(chan string, 8),
 		Connected:     true,
@@ -271,6 +279,7 @@ func run(w *app.Window, reader *bufio.Reader) error {
 	}
 }
 
+// TODO: add mail and password
 func layoutJoinScreen(gtx layout.Context, th *material.Theme, state *AppState, w *app.Window, joinClicked *bool) layout.Dimensions {
 	fill(gtx, th.Palette.Bg)
 

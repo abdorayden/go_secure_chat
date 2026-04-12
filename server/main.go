@@ -2,12 +2,21 @@ package main
 
 import (
 	"bufio"
+	"crypto/md5"
 	"encoding/base64"
+	"errors"
 	"flag"
+	"fmt"
+	"hash"
 	"log"
 	"net"
+	"os"
 	"strings"
 	"sync"
+
+	"database/sql"
+
+	_ "github.com/mattn/go-sqlite3"
 
 	"chat_sec/server/enc"
 )
@@ -165,10 +174,106 @@ func broadcastSystemMessage(msg string) {
 	}
 }
 
-func main() {
+const DBFile = "./db.db"
+
+type DBModel struct {
+	db *sql.DB
+}
+
+func newDBModel(db *sql.DB) (*DBModel, error) {
+	// db
+	var fileContentAsBytes []byte
+	var fileContent string
 	var err error
-	var aesKeyB64 string
-	var aesKeySize int
+
+	db, err = sql.Open("sqlite3", DBFile)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() {
+		err = db.Close()
+		if err != nil {
+			panic(err) // no option available
+		}
+	}()
+
+	fileContentAsBytes, err = os.ReadFile("./queries/tables.sql")
+	if err != nil {
+		return nil, err
+	}
+
+	// NOTE: succefully load tables
+	fileContent = string(fileContentAsBytes)
+	_, err = db.Exec(fileContent)
+	if err != nil {
+		return nil, err
+	}
+
+	return &DBModel{
+		db}, nil
+}
+
+var ErrUserExists = errors.New("user already exists")
+
+func (dbmodel *DBModel) execQ(query string) bool {
+	var (
+		err  error
+		rows *sql.Rows
+	)
+	rows, err = dbmodel.db.Query(query, nil)
+	defer func() {
+		err = rows.Close()
+		if err != nil {
+			panic(err)
+		}
+	}()
+
+	return rows.Next()
+}
+
+func (dbmodel *DBModel) checkUser(mail, password string) bool {
+	var query string
+	pass := md5.New()
+	hashedPassword := pass.Sum([]byte(password))
+	query = fmt.Sprintf("SELECT * FROM users WHERE mail = %v and password = %v;", mail, hashedPassword)
+	return dbmodel.execQ(query)
+}
+
+func (dbmodel *DBModel) signUp(username, mail, password string) (bool, error) {
+	if dbmodel.checkUser(mail, password) {
+		return false, ErrUserExists
+	}
+	var (
+		query string
+		pass  hash.Hash
+	)
+	pass = md5.New()
+	hashedPassword := pass.Sum([]byte(password))
+	query = fmt.Sprintf("insert into users values (%v , %v , %v);", username, hashedPassword, mail)
+	return dbmodel.execQ(query), nil
+}
+
+func main() {
+
+	var (
+		err        error
+		aesKeyB64  string
+		aesKeySize int
+		db         *sql.DB
+		dbModel    *DBModel
+	)
+
+	dbModel, err = newDBModel(db)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// TODO: add button to let user to reconnect to the server
+
+	// TODO: get signin and signup data to manage the db after prepare queries for them
+	// TODO: handle format for signin and signup for the server
+	_ = dbModel
 
 	flag.StringVar(&encMode, "enc", "rsa", "encryption mode: rsa or aes")
 	flag.StringVar(&aesKeyB64, "aes-key", "", "base64-encoded AES key (optional)")
