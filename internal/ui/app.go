@@ -19,13 +19,13 @@ func Run(addr string) error {
 
 	state := newAppState()
 	if err := state.Connect(&w, addr); err != nil {
-		state.ErrorText = err.Error()
-		state.StatusText = "Disconnected"
+		state.Session.ErrorText = err.Error()
+		state.Session.StatusText = "Disconnected"
 	}
 
 	var ops op.Ops
 	th := material.NewTheme()
-	applyTheme(th)
+	applyTheme(th, state.ActivePalette())
 
 	for {
 		switch ev := w.Event().(type) {
@@ -35,7 +35,7 @@ func Run(addr string) error {
 		case app.FrameEvent:
 			gtx := app.NewContext(&ops, ev)
 			state.DrainEvents()
-			if state.Joined {
+			if state.Session.Joined {
 				layoutChat(gtx, th, state)
 			} else {
 				layoutAuth(gtx, th, state, &w, addr)
