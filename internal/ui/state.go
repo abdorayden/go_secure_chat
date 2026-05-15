@@ -153,6 +153,9 @@ func (s *AppState) handlePacket(token uint64, packet protocol.Packet) {
 	case protocol.TypeMessage:
 		plaintext, err := s.decryptIncomingMessage(token, packet)
 		if err != nil {
+			if packet.Status == "history" {
+				return
+			}
 			s.emit(token, inboundEvent{Kind: eventStatus, Status: "Decrypt failed", Err: err.Error()})
 			return
 		}
@@ -236,8 +239,12 @@ func (s *AppState) SubmitAuth() error {
 	if err := s.ValidateAuthForm(); err != nil {
 		return err
 	}
+	email := strings.TrimSpace(s.EmailInput.Text())
+	if err := client.EnsureIdentityKey(email); err != nil {
+		return err
+	}
 	packet := protocol.Packet{
-		Email:    strings.TrimSpace(s.EmailInput.Text()),
+		Email:    email,
 		Password: s.PasswordInput.Text(),
 	}
 	if s.SigningUp {

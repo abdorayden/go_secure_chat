@@ -6,6 +6,8 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/pem"
+	"errors"
 )
 
 func GenerateRSAKeyPair(bits int) (*rsa.PrivateKey, error) {
@@ -40,4 +42,21 @@ func EncryptRSAOAEP(pub *rsa.PublicKey, plaintext []byte) ([]byte, error) {
 func DecryptRSAOAEP(priv *rsa.PrivateKey, ciphertext []byte) ([]byte, error) {
 	hash := sha256.New()
 	return rsa.DecryptOAEP(hash, rand.Reader, priv, ciphertext, nil)
+}
+
+func MarshalPrivateKeyPEM(priv *rsa.PrivateKey) ([]byte, error) {
+	der := x509.MarshalPKCS1PrivateKey(priv)
+	block := &pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: der,
+	}
+	return pem.EncodeToMemory(block), nil
+}
+
+func ParsePrivateKeyPEM(data []byte) (*rsa.PrivateKey, error) {
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return nil, errors.New("invalid private key pem")
+	}
+	return x509.ParsePKCS1PrivateKey(block.Bytes)
 }

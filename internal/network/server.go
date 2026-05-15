@@ -234,6 +234,9 @@ func (s *Server) handlePacket(ctx context.Context, client *Client, packet protoc
 			return errors.New("message too large")
 		}
 		packet.Username = client.Username
+		if err := s.db.SaveMessageHistory(ctx, packet.MessageID, client.Username, packet.Ciphertext, packet.EncryptedKeys, packet.Timestamp); err != nil {
+			return err
+		}
 		s.broadcastMessage(client, packet)
 		return nil
 	default:
@@ -257,12 +260,36 @@ func (s *Server) finishAuth(client *Client, username, email, publicKey string) e
 		Username: username,
 		Payload:  fmt.Sprintf("authenticated as %s", username),
 	})
+	if err := s.sendHistoryLocked(context.Background(), client); err != nil {
+		return err
+	}
 	s.sendEncrypted(client, protocol.Packet{
 		Type:  protocol.TypePeerSync,
 		Peers: s.peerSnapshotLocked(),
 	})
 	s.broadcastPeerSyncLocked()
 	s.broadcastSystemLocked(fmt.Sprintf("%s joined the chat", username))
+	return nil
+}
+
+func (s *Server) sendHistoryLocked(ctx context.Context, client *Client) error {
+	records, err := s.db.LoadMessageHistoryForUser(ctx, client.Username, 200)
+	if err != nil {
+		return err
+	}
+	for _, record := range records {
+		s.sendEncrypted(client, protocol.Packet{
+			Type:       protocol.TypeMessage,
+			Username:   record.SenderUsername,
+			MessageID:  record.MessageID,
+			Ciphertext: record.Ciphertext,
+			EncryptedKeys: map[string]string{
+				client.Username: record.EncryptedKey,
+			},
+			Timestamp: record.CreatedAtUnix,
+			Status:    "history",
+		})
+	}
 	return nil
 }
 

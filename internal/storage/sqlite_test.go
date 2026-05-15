@@ -49,6 +49,31 @@ func TestDuplicateUsers(t *testing.T) {
 	}
 }
 
+func TestSaveAndLoadMessageHistory(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	ctx := context.Background()
+	err := db.SaveMessageHistory(ctx, "msg-1", "alice", "ciphertext-1", map[string]string{
+		"alice": "wrapped-a",
+		"bob":   "wrapped-b",
+	}, 1710000000)
+	if err != nil {
+		t.Fatalf("SaveMessageHistory: %v", err)
+	}
+
+	records, err := db.LoadMessageHistoryForUser(ctx, "bob", 50)
+	if err != nil {
+		t.Fatalf("LoadMessageHistoryForUser: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected 1 record, got %d", len(records))
+	}
+	if records[0].SenderUsername != "alice" || records[0].EncryptedKey != "wrapped-b" {
+		t.Fatalf("unexpected record: %#v", records[0])
+	}
+}
+
 func TestMain(m *testing.M) {
 	code := m.Run()
 	os.Exit(code)

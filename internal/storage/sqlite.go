@@ -29,6 +29,15 @@ type User struct {
 	PasswordHash string
 }
 
+type MessageHistoryRecord struct {
+	MessageID         string
+	SenderUsername    string
+	RecipientUsername string
+	Ciphertext        string
+	EncryptedKey      string
+	CreatedAtUnix     int64
+}
+
 type DBModel struct {
 	db *sql.DB
 }
@@ -125,6 +134,72 @@ func (m *DBModel) AuthenticateUser(ctx context.Context, email, password string) 
 		return nil, ErrInvalidCredentials
 	}
 	return user, nil
+}
+
+func (m *DBModel) SaveMessageHistory(ctx context.Context, messageID, senderUsername, ciphertext string, encryptedKeys map[string]string, timestamp int64) error {
+	tx, err := m.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.PrepareContext(ctx, `
+		INSERT OR REPLACE INTO message_history
+			(message_id, sender_username, recipient_username, ciphertext, encrypted_key, created_at)
+		VALUES (?, ?, ?, ?, ?, datetime(?, 'unixepoch'))
+	`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for recipientUsername, encryptedKey := range encryptedKeys {
+		if _, err := stmt.ExecContext(ctx, messageID, senderUsername, recipientUsername, ciphertext, encryptedKey, timestamp); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (m *DBModel) LoadMessageHistoryForUser(ctx context.Context, username string, limit int) ([]MessageHistoryRecord, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	rows, err := m.db.QueryContext(ctx, `
+		SELECT message_id, sender_username, recipient_username, ciphertext, encrypted_key, strftime('%s', created_at)
+		FROM message_history
+		WHERE recipient_username = ?
+		ORDER BY created_at ASC, id ASC
+		LIMIT ?
+	`, username, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	records := make([]MessageHistoryRecord, 0, limit)
+	for rows.Next() {
+		var (
+			record        MessageHistoryRecord
+			createdAtUnix string
+		)
+		if err := rows.Scan(
+			&record.MessageID,
+			&record.SenderUsername,
+			&record.RecipientUsername,
+			&record.Ciphertext,
+			&record.EncryptedKey,
+			&createdAtUnix,
+		); err != nil {
+			return nil, err
+		}
+		if createdAtUnix != "" {
+			fmt.Sscanf(createdAtUnix, "%d", &record.CreatedAtUnix)
+		}
+		records = append(records, record)
+	}
+	return records, rows.Err()
 }
 
 func migrateLegacyUsersSchema(db *sql.DB) error {

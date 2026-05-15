@@ -3,10 +3,14 @@ package network
 import (
 	"bufio"
 	"crypto/rsa"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -66,25 +70,13 @@ func Dial(addr string) (*TransportClient, error) {
 		_ = conn.Close()
 		return nil, err
 	}
-	chatKey, err := appcrypto.GenerateRSAKeyPair(2048)
-	if err != nil {
-		_ = conn.Close()
-		return nil, err
-	}
-	publicKey, err := appcrypto.MarshalPublicKey(&chatKey.PublicKey)
-	if err != nil {
-		_ = conn.Close()
-		return nil, err
-	}
 	client := &TransportClient{
-		addr:       addr,
-		conn:       conn,
-		reader:     reader,
-		aesKey:     aesKey,
-		privateKey: chatKey,
-		publicKey:  publicKey,
-		peers:      make(map[string]*rsa.PublicKey),
-		closing:    make(chan struct{}),
+		addr:    addr,
+		conn:    conn,
+		reader:  reader,
+		aesKey:  aesKey,
+		peers:   make(map[string]*rsa.PublicKey),
+		closing: make(chan struct{}),
 	}
 	return client, nil
 }
@@ -106,8 +98,39 @@ func (c *TransportClient) Close() error {
 }
 
 func (c *TransportClient) SendAuth(packet protocol.Packet) error {
+	if c.privateKey == nil || c.publicKey == "" {
+		return errors.New("identity key not initialized")
+	}
 	packet.PublicKey = c.publicKey
 	return c.sendPacket(packet)
+}
+
+func (c *TransportClient) EnsureIdentityKey(accountID string) error {
+	accountID = strings.TrimSpace(strings.ToLower(accountID))
+	if accountID == "" {
+		return errors.New("account id is required")
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.privateKey != nil && c.publicKey != "" {
+		return nil
+	}
+
+	keyPath := identityKeyPath(accountID)
+	privateKey, err := loadOrCreateIdentityKey(keyPath)
+	if err != nil {
+		return err
+	}
+	publicKey, err := appcrypto.MarshalPublicKey(&privateKey.PublicKey)
+	if err != nil {
+		return err
+	}
+
+	c.privateKey = privateKey
+	c.publicKey = publicKey
+	return nil
 }
 
 func (c *TransportClient) sendPacket(packet protocol.Packet) error {
@@ -190,6 +213,12 @@ func (c *TransportClient) SendMessage(packet protocol.Packet) error {
 }
 
 func (c *TransportClient) DecryptMessage(packet protocol.Packet, username string) (string, error) {
+	c.mu.RLock()
+	privateKey := c.privateKey
+	c.mu.RUnlock()
+	if privateKey == nil {
+		return "", errors.New("identity key not initialized")
+	}
 	wrapped, ok := packet.EncryptedKeys[username]
 	if !ok {
 		return "", errors.New("message not addressed to user")
@@ -198,7 +227,7 @@ func (c *TransportClient) DecryptMessage(packet protocol.Packet, username string
 	if err != nil {
 		return "", err
 	}
-	messageKey, err := appcrypto.DecryptRSAOAEP(c.privateKey, wrappedBytes)
+	messageKey, err := appcrypto.DecryptRSAOAEP(privateKey, wrappedBytes)
 	if err != nil {
 		return "", err
 	}
@@ -211,4 +240,36 @@ func (c *TransportClient) DecryptMessage(packet protocol.Packet, username string
 
 func fmtMessageID() string {
 	return strings.ReplaceAll(time.Now().UTC().Format(time.RFC3339Nano), ":", "_")
+}
+
+func identityKeyPath(accountID string) string {
+	sum := sha256.Sum256([]byte(accountID))
+	filename := hex.EncodeToString(sum[:]) + ".pem"
+	return filepath.Join(".", "client_keys", filename)
+}
+
+func loadOrCreateIdentityKey(path string) (*rsa.PrivateKey, error) {
+	data, err := os.ReadFile(path)
+	if err == nil {
+		return appcrypto.ParsePrivateKeyPEM(data)
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+
+	privateKey, err := appcrypto.GenerateRSAKeyPair(2048)
+	if err != nil {
+		return nil, err
+	}
+	pemData, err := appcrypto.MarshalPrivateKeyPEM(privateKey)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(path, pemData, 0o600); err != nil {
+		return nil, err
+	}
+	return privateKey, nil
 }
