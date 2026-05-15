@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"regexp"
 	"strings"
@@ -43,6 +44,10 @@ func Open(path string, migrationPath string) (*DBModel, error) {
 		return nil, err
 	}
 	if _, err := db.Exec(string(schema)); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := migrateLegacyUsersSchema(db); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -120,4 +125,57 @@ func (m *DBModel) AuthenticateUser(ctx context.Context, email, password string) 
 		return nil, ErrInvalidCredentials
 	}
 	return user, nil
+}
+
+func migrateLegacyUsersSchema(db *sql.DB) error {
+	columns, err := userTableColumns(db)
+	if err != nil {
+		return err
+	}
+	if len(columns) == 0 {
+		return nil
+	}
+
+	hasEmail := columns["email"]
+	hasPasswordHash := columns["password_hash"]
+	hasMail := columns["mail"]
+	hasPassword := columns["password"]
+
+	if hasEmail && hasPasswordHash {
+		return nil
+	}
+	if !hasMail || !hasPassword {
+		return fmt.Errorf("users table has unsupported schema")
+	}
+
+	_, err = db.Exec(`
+		ALTER TABLE users RENAME COLUMN mail TO email;
+		ALTER TABLE users RENAME COLUMN password TO password_hash;
+	`)
+	return err
+}
+
+func userTableColumns(db *sql.DB) (map[string]bool, error) {
+	rows, err := db.Query(`PRAGMA table_info(users)`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	columns := make(map[string]bool)
+	for rows.Next() {
+		var (
+			cid       int
+			name      string
+			ctype     string
+			notnull   int
+			dfltValue any
+			pk        int
+		)
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err != nil {
+			return nil, err
+		}
+		columns[strings.ToLower(name)] = true
+	}
+	return columns, rows.Err()
 }
