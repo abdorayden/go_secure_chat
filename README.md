@@ -308,6 +308,10 @@ The important architectural choice: the server is not a chat relay that happens 
 - `internal/storage/sqlite.go`
 - `migrations/001_users.sql`
 
+## AI Agnets and their advantage
+
+- I let the AI agent handle the additional works. It ensures memory cleanup isn't missed, closes streams properly, writes tests for packages, and takes care of repetitive work. isn't that cool !!!
+
 ## POC / Screenshots
 
 ### Chat UI
