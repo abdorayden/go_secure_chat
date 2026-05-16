@@ -1,3 +1,11 @@
+// Copyright (c) 2026 abdenour souane. All Rights Reserved.
+
+// network package is a main component that used to handle connection between server and client,
+// handshake, and more using a builtin protocol
+// that is defined in separet package, and use builtin Packet implementation that is decode and encode json shared object
+// between server and client
+// this network package collect all components together
+
 package network
 
 import (
@@ -18,40 +26,51 @@ import (
 	"syscall"
 	"time"
 
+	// my internal packages
 	appcrypto "chat_sec/internal/crypto"
 	"chat_sec/internal/protocol"
 	"chat_sec/internal/storage"
 )
 
+// define constants
 const (
 	defaultWriteTimeout = 5 * time.Second
 	defaultSendQueue    = 64
 )
 
+// Server struct
 type Server struct {
-	addr       string
-	logger     *slog.Logger
-	db         *storage.DBModel
-	listener   net.Listener
-	privateKey *rsa.PrivateKey
+	// server data
+	addr       string           // addr of the server
+	logger     *slog.Logger     // logger for more informations
+	db         *storage.DBModel // the db model
+	listener   net.Listener     // net tcp listener
+	privateKey *rsa.PrivateKey  // private key (RSA)
 
-	mu      sync.RWMutex
-	clients map[string]*Client
+	// clients with data
+	mu      sync.RWMutex       // read write mutex for safety access to a global variable
+	clients map[string]*Client // map of clients connected to the server
 
-	shutdown chan struct{}
-	wg       sync.WaitGroup
+	// signals
+	shutdown chan struct{}  // shutdown for signals (safety memory clean)
+	wg       sync.WaitGroup // wait group of async tasks
 }
 
+// Client struct
 type Client struct {
-	Conn      net.Conn
-	Username  string
-	Email     string
-	AESKey    []byte
-	Send      chan protocol.Packet
-	PublicKey string
-	Addr      string
+	Conn      net.Conn             // connection instance for the client
+	Username  string               // client username
+	Email     string               // client email
+	AESKey    []byte               // client AES key
+	Send      chan protocol.Packet // Send packet that used for communication
+	PublicKey string               // public key (RSA)
+	Addr      string               // addr of the server
 }
 
+// RunServer the entry point of lunching the server
+// @param ctx context.Context the function context that used to handle unix signals in case we pressed CTRL-C
+// @param addr string addr we are listening to
+// @return error Error in case we have error
 func RunServer(ctx context.Context, addr string) error {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	db, err := storage.Open(filepath.Join(".", "db.db"), filepath.Join(".", "migrations", "001_users.sql"))
@@ -60,7 +79,7 @@ func RunServer(ctx context.Context, addr string) error {
 	}
 	defer db.Close()
 
-	privateKey, err := appcrypto.GenerateRSAKeyPair(2048)
+	privateKey, err := appcrypto.GenerateRSAKeyPair(2048) // generate 2 keys
 	if err != nil {
 		return err
 	}
@@ -94,7 +113,7 @@ func RunServer(ctx context.Context, addr string) error {
 		conn, err := listener.Accept()
 		if err != nil {
 			select {
-			case <-server.shutdown:
+			case <-server.shutdown: // in case server shutdown we wait for all clients
 				server.wg.Wait()
 				return nil
 			default:
@@ -102,7 +121,7 @@ func RunServer(ctx context.Context, addr string) error {
 				continue
 			}
 		}
-		server.wg.Add(1)
+		server.wg.Add(1) // add one for wait group because we have client connected
 		go func() {
 			defer server.wg.Done()
 			server.handleConn(sigCtx, conn)
@@ -129,7 +148,13 @@ func (s *Server) Close() error {
 	return nil
 }
 
+// handleConn function it's a routine that is executed in separet thread for each client connected to the server
+// @param ctx context.Context used to detect signal if the user exit or something
+// @param conn net.Conn the connection of the client that is already connected
 func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
+
+	// this part is initializing the handshake
+
 	addr := conn.RemoteAddr().String()
 	s.logger.Info("connection opened", "addr", addr)
 	defer func() {
@@ -138,8 +163,9 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 	}()
 
 	reader := bufio.NewReader(conn)
-	pubKeyRaw, err := appcrypto.MarshalPublicKey(&s.privateKey.PublicKey)
+	pubKeyRaw, err := appcrypto.MarshalPublicKey(&s.privateKey.PublicKey) // get the public key
 	if err != nil {
+		// problem with pair keys geterated
 		s.writePlainPacket(conn, protocol.Packet{Type: protocol.TypeError, Error: "server key error"})
 		return
 	}
@@ -147,7 +173,7 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 		return
 	}
 
-	packet, err := protocol.DecodeLine(reader)
+	packet, err := protocol.DecodeLine(reader) // handshake
 	if err != nil || packet.Type != protocol.TypeHandshake {
 		s.writePlainPacket(conn, protocol.Packet{Type: protocol.TypeError, Error: "invalid handshake"})
 		return
@@ -173,9 +199,12 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 	}
 
 	go func() {
+		// run it in separet thread
 		s.writer(client)
 	}()
 
+	// handshake is okay
+	// the tunnel is safe
 	s.sendEncrypted(client, protocol.Packet{
 		Type:    protocol.TypeSystem,
 		Status:  "handshake_ok",
@@ -359,6 +388,8 @@ func (s *Server) peerSnapshotLocked() []protocol.Peer {
 	return peers
 }
 
+// writer is a method of Server struct
+// that accept the client to write encrypted packet into Packet channel in Server
 func (s *Server) writer(client *Client) {
 	for packet := range client.Send {
 		if err := writeEncryptedPacket(client.Conn, client.AESKey, packet); err != nil {

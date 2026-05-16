@@ -1,3 +1,5 @@
+// Copyright (c) 2026 abdenour souane. All Rights Reserved.
+
 package crypto
 
 import (

@@ -1,3 +1,11 @@
+// Copyright (c) 2026 abdenour souane. All Rights Reserved.
+
+// network package is a main component that used to handle connection between server and client,
+// handshake, and more using a builtin protocol
+// that is defined in separet package, and use builtin Packet implementation that is decode and encode json shared object
+// between server and client
+// this network package collect all components together
+
 package network
 
 import (
@@ -98,8 +106,8 @@ func (c *TransportClient) Close() error {
 }
 
 func (c *TransportClient) SendAuth(packet protocol.Packet) error {
-	if c.privateKey == nil || c.publicKey == "" {
-		return errors.New("identity key not initialized")
+	if err := c.EnsureIdentityKey(packet.Email); err != nil {
+		return err
 	}
 	packet.PublicKey = c.publicKey
 	return c.sendPacket(packet)

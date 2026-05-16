@@ -1,3 +1,5 @@
+// Copyright (c) 2026 abdenour souane. All Rights Reserved.
+
 package ui
 
 import (
@@ -41,7 +43,7 @@ func sidebarBranding(gtx layout.Context, th *material.Theme, palette Palette) la
 			return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(
 				gtx,
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return avatarBadge(gtx, palette.Accent, "L")
+					return avatarBadge(gtx, th, palette.Accent, "L")
 				}),
 				layout.Rigid(layout.Spacer{Width: unit.Dp(12)}.Layout),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -95,7 +97,7 @@ func sidebarRoomItem(gtx layout.Context, th *material.Theme, state *AppState, pa
 			return layout.Inset{Left: unit.Dp(12), Right: unit.Dp(12), Top: unit.Dp(12), Bottom: unit.Dp(12)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(
 					gtx,
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions { return avatarBadge(gtx, palette.AccentSoft, "#") }),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions { return avatarBadge(gtx, th, palette.AccentSoft, "#") }),
 					layout.Rigid(layout.Spacer{Width: unit.Dp(10)}.Layout),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						lbl := material.Body1(th, room.Name)
@@ -114,7 +116,7 @@ func sidebarRoomItem(gtx layout.Context, th *material.Theme, state *AppState, pa
 		})
 	})
 	for room.Clickable.Clicked(gtx) {
-		state.UI.ActiveRoom = room.Name
+		state.SetActiveRoom(room.Name)
 	}
 	return dims
 }

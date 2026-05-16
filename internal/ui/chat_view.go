@@ -1,3 +1,5 @@
+// Copyright (c) 2026 abdenour souane. All Rights Reserved.
+
 package ui
 
 import (
@@ -74,7 +76,7 @@ func chatHeader(gtx layout.Context, th *material.Theme, state *AppState, palette
 	return layout.Inset{Left: unit.Dp(22), Right: unit.Dp(22), Top: unit.Dp(18), Bottom: unit.Dp(18)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(
 			gtx,
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return avatarBadge(gtx, palette.Accent, "G") }),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return avatarBadge(gtx, th, palette.Accent, "G") }),
 			layout.Rigid(layout.Spacer{Width: unit.Dp(14)}.Layout),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				return layout.Flex{Axis: layout.Vertical}.Layout(
@@ -232,13 +234,13 @@ func chatBubble(gtx layout.Context, th *material.Theme, msg Message, bg, fg colo
 	return dims
 }
 
-func avatarBadge(gtx layout.Context, bg color.NRGBA, label string) layout.Dimensions {
+func avatarBadge(gtx layout.Context, th *material.Theme, bg color.NRGBA, label string) layout.Dimensions {
 	size := gtx.Dp(unit.Dp(38))
 	return card(gtx, bg, size/2, func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min = image.Pt(size, size)
 		gtx.Constraints.Max = image.Pt(size, size)
 		return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			lbl := material.Body1(material.NewTheme(), label)
+			lbl := material.Body1(th, label)
 			lbl.Color = color.NRGBA{R: 0xFF, G: 0xFF, B: 0xFF, A: 0xFF}
 			return lbl.Layout(gtx)
 		})

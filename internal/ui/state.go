@@ -1,3 +1,5 @@
+// Copyright (c) 2026 abdenour souane. All Rights Reserved.
+
 package ui
 
 import (
@@ -111,6 +113,7 @@ type UIState struct {
 }
 
 type AppState struct {
+	Window  *app.Window
 	Auth    AuthState
 	Chat    ChatState
 	Session SessionState
@@ -123,8 +126,9 @@ type AppState struct {
 	clientToken uint64
 }
 
-func newAppState() *AppState {
+func newAppState(w *app.Window) *AppState {
 	return &AppState{
+		Window: w,
 		Auth: AuthState{
 			UsernameInput: widget.Editor{SingleLine: true, Submit: true},
 			EmailInput:    widget.Editor{SingleLine: true, Submit: true},
@@ -150,6 +154,12 @@ func newAppState() *AppState {
 			},
 		},
 		Incoming: make(chan inboundEvent, 64),
+	}
+}
+
+func (s *AppState) invalidate() {
+	if s.Window != nil {
+		s.Window.Invalidate()
 	}
 }
 
@@ -319,9 +329,6 @@ func (s *AppState) SubmitAuth() error {
 		return err
 	}
 	email := strings.TrimSpace(s.Auth.EmailInput.Text())
-	if err := client.EnsureIdentityKey(email); err != nil {
-		return err
-	}
 	packet := protocol.Packet{
 		Email:    email,
 		Password: s.Auth.PasswordInput.Text(),
@@ -365,6 +372,7 @@ func (s *AppState) SwitchAuthMode(signingUp bool) {
 	if !signingUp {
 		s.Auth.UsernameInput.SetText("")
 	}
+	s.invalidate()
 }
 
 func (s *AppState) ActivePalette() Palette {
@@ -377,9 +385,15 @@ func (s *AppState) ActivePalette() Palette {
 func (s *AppState) ToggleTheme() {
 	if s.UI.Theme == ThemeDark {
 		s.UI.Theme = ThemeLight
+		s.invalidate()
 		return
 	}
 	s.UI.Theme = ThemeDark
+	s.invalidate()
+}
+
+func (s *AppState) HandleThemeToggle() {
+	s.ToggleTheme()
 }
 
 func (s *AppState) SendMessage(text string) error {
@@ -409,6 +423,7 @@ func (s *AppState) SendMessage(text string) error {
 		Status:    "sent",
 	})
 	s.Chat.Input.SetText("")
+	s.invalidate()
 	return nil
 }
 
@@ -426,6 +441,15 @@ func (s *AppState) Logout() {
 	s.Session.ErrorText = ""
 	s.Auth.Loading = false
 	s.UI.Modal = ModalState{}
+	s.invalidate()
+}
+
+func (s *AppState) SetActiveRoom(name string) {
+	if strings.TrimSpace(name) == "" || s.UI.ActiveRoom == name {
+		return
+	}
+	s.UI.ActiveRoom = name
+	s.invalidate()
 }
 
 func (s *AppState) OpenDeleteAccountModal() {
@@ -438,6 +462,7 @@ func (s *AppState) OpenDeleteAccountModal() {
 		SecondaryLabel: "Cancel",
 		ConfirmEditor:  widget.Editor{SingleLine: true, Submit: true},
 	}
+	s.invalidate()
 }
 
 func (s *AppState) OpenInfoModal(kind, title, message string) {
@@ -448,10 +473,12 @@ func (s *AppState) OpenInfoModal(kind, title, message string) {
 		Message:       message,
 		PrimaryAction: "Close",
 	}
+	s.invalidate()
 }
 
 func (s *AppState) CloseModal() {
 	s.UI.Modal = ModalState{}
+	s.invalidate()
 }
 
 func (s *AppState) ConfirmModal() {
@@ -459,6 +486,7 @@ func (s *AppState) ConfirmModal() {
 	case "delete_account":
 		if strings.TrimSpace(strings.ToUpper(s.UI.Modal.ConfirmEditor.Text())) != "DELETE" {
 			s.Session.ErrorText = "type DELETE to confirm account removal"
+			s.invalidate()
 			return
 		}
 		s.CloseModal()
